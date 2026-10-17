@@ -201,6 +201,10 @@ def homologar_documento_auditoria(
         )
 
     if payload.decisao == "aprovar":
+        doc_antigo["status"] = "processado"
+        # A falha original continua auditável; a revisão humana resolveu a pendência.
+        if doc_antigo.get("erro_extracao"):
+            doc_antigo["erro_extracao_anterior"] = doc_antigo.pop("erro_extracao")
         # Atualização das entidades clínicas retificadas
         doc_antigo.setdefault("dados_extraidos", {})
         doc_antigo["dados_extraidos"].setdefault("paciente", {})

@@ -7,12 +7,17 @@ Suporta inferência multimodal (PDF, imagens, texto plano) e Structured Outputs 
 import base64
 import binascii
 import logging
+import random
+import time
 from typing import Any, Dict, List
 
 from google import genai
 from google.genai import types
+import httpx
+from pydantic import BaseModel, ValidationError
 
 from domain.ports.llm_port import LLMPort
+from domain.exceptions import FalhaExtracaoIA
 from infrastructure.adapters.schemas_llm import ExtracaoClinicaLLMSchema
 
 logger = logging.getLogger("MediFlowGeminiAdapter")
@@ -24,9 +29,14 @@ class GeminiLLMAdapter(LLMPort):
     Implementa a extração padronizada via schema Pydantic (ExtracaoClinicaLLMSchema).
     """
 
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash"):
-        self.client = genai.Client(api_key=api_key)
+    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash",
+                 timeout_ms: int = 20000, max_attempts: int = 3):
+        # Uma única política de repetição: o SDK não multiplica as tentativas.
+        self.client = genai.Client(api_key=api_key, http_options=types.HttpOptions(
+            timeout=timeout_ms, retry_options=types.HttpRetryOptions(attempts=1),
+        ))
         self.model_name = model_name
+        self.max_attempts = max(1, min(max_attempts, 3))
 
     def _obter_system_instruction(self) -> str:
         return (
@@ -66,7 +76,9 @@ class GeminiLLMAdapter(LLMPort):
                     bytes_conteudo = b""
 
             if bytes_conteudo:
-                mime_type = "application/pdf" if tipo == "PDF" else "image/jpeg"
+                mime_type = "application/pdf" if tipo == "PDF" else (
+                    "image/png" if bytes_conteudo.startswith(b"\x89PNG\r\n\x1a\n") else "image/jpeg"
+                )
                 partes.append(
                     types.Part.from_bytes(
                         data=bytes_conteudo,
@@ -91,38 +103,43 @@ class GeminiLLMAdapter(LLMPort):
 
         config = types.GenerateContentConfig(
             system_instruction=self._obter_system_instruction(),
-            temperature=0.1,  # Determinação estrita sem variações criativas
             response_mime_type="application/json",
             response_schema=ExtracaoClinicaLLMSchema,
         )
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=partes,
-                config=config,
-            )
-
-            # Extração validada diretamente via objeto parsed do SDK
-            resultado_estruturado: ExtracaoClinicaLLMSchema = response.parsed
-            if resultado_estruturado is None:
-                raise ValueError("O modelo não devolveu um payload estruturado válido.")
-
-            return resultado_estruturado.model_dump()
-
-        except Exception as exc:
-            logger.error("Falha na chamada ao modelo Gemini (%s): %s", self.model_name, exc)
-            # Retorno de contingência com baixa confiança para desvio para auditoria humana
-            return {
-                "tipo_documento": "Documento Clínico Não Identificado",
-                "especialidade": "Clínica Geral",
-                "nivel_prioridade": "Rotina",
-                "score_confianca": 0.0,
-                "paciente": {"nome": None, "idade": None},
-                "medico_solicitante": {"nome": None, "crm": None},
-                "exame_realizado": None,
-                "diagnostico_principal": None,
-                "cid_sugerido": None,
-                "medicamentos": [],
-                "achado_critico": False,
-            }
+        for tentativa in range(self.max_attempts):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name, contents=partes, config=config,
+                )
+                parsed = response.parsed
+                if isinstance(parsed, BaseModel):
+                    parsed = parsed.model_dump()
+                if parsed is None:
+                    raise ValueError("Resposta estruturada ausente.")
+                return ExtracaoClinicaLLMSchema.model_validate(parsed, strict=True).model_dump()
+            except Exception as exc:
+                codigo_http = getattr(exc, "code", None)
+                temporaria = codigo_http in (408, 429, 500, 502, 503, 504) or isinstance(
+                    exc, (httpx.TransportError, TimeoutError, ConnectionError)
+                )
+                if temporaria and tentativa + 1 < self.max_attempts:
+                    time.sleep(2 ** tentativa + random.uniform(0, 0.25))
+                    continue
+                if isinstance(exc, (ValidationError, ValueError)):
+                    codigo, mensagem = "resposta_invalida", "A IA não retornou uma extração estruturada válida."
+                elif codigo_http in (401, 403):
+                    codigo, mensagem = "acesso_negado", "Credencial ou permissão de acesso à IA recusada."
+                elif codigo_http == 400:
+                    codigo, mensagem = "requisicao_invalida", "A IA recusou a requisição. Confira a chave, o modelo e o formato do documento."
+                elif codigo_http == 404:
+                    codigo, mensagem = "modelo_indisponivel", "Modelo indisponível para esta conta. Confira GEMINI_MODEL_NAME."
+                elif codigo_http == 429:
+                    codigo, mensagem = "limite_uso", "Limite de uso ou cota da IA atingido."
+                elif temporaria:
+                    codigo, mensagem = "servico_indisponivel", "Não foi possível acessar a IA após as tentativas limitadas."
+                else:
+                    codigo, mensagem = "falha_ia", "A extração pela IA não pôde ser concluída."
+                # Não registrar mensagens brutas do provedor: podem conter dados sensíveis.
+                logger.warning("Extração Gemini falhou: codigo=%s; tipo=%s", codigo, type(exc).__name__)
+                raise FalhaExtracaoIA(codigo, mensagem) from exc

@@ -1,111 +1,90 @@
-"""
-Visão de Apresentação: Painel de Auditoria Clínica (Human-in-the-Loop)
-Consulta pendências reais em /auditoria_humana/ no OCI e persiste a homologação humana na nuvem.
-"""
-
-import os
+"""Conferência lado a lado e homologação de pendências."""
 import requests
 import streamlit as st
 
-BASE_API = os.getenv("API_URL", "http://localhost:8000/triagem").replace("/triagem", "")
+from presentation.web.api_client import API_URL, consultar, enviar
+from presentation.web.components.pdf_viewer import renderizar_visualizador_documento
+
+DESTINOS = {
+    "Prontuario_Eletronico_Paciente": "Prontuário eletrônico",
+    "Farmacia_Hospitalar": "Farmácia hospitalar",
+    "Auditoria_de_Autorizacoes": "Auditoria de autorizações",
+    "Fila_Emergencia_Medica": "Emergência médica",
+}
 
 
 def renderizar_painel_auditoria():
-    st.header("🔍 Painel de Auditoria Clínica — Human-in-the-Loop")
-    st.markdown(
-        "Fila de contingência integrada diretamente ao OCI Object Storage. "
-        "Aprovações e correções movem o registro de `/auditoria_humana/` para `/processados/rotina/`."
-    )
-
+    st.title("Conferir antes de encaminhar.")
+    st.caption("Compare o documento original com a extração e registre sua decisão.")
+    if "aviso_auditoria" in st.session_state:
+        st.success(st.session_state.pop("aviso_auditoria"))
     try:
-        resp = requests.get(f"{BASE_API}/triagem/filas/auditoria", timeout=10)
-        fila_pendente = resp.json() if resp.status_code == 200 else []
-    except Exception as exc:
-        st.error(f"Erro ao conectar com OCI Object Storage: {exc}")
-        fila_pendente = []
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Pendentes no Bucket OCI", f"{len(fila_pendente)} docs")
-#    col2.metric("Limiar Mínimo", "85.0%")
-    col2.metric(
-        "Limiar Mínimo Autônomo", 
-        "85.0%", 
-        help="Documentos com score abaixo de 0.85 são retidos obrigatoriamente."
-)
-
-    col3.metric("Armazenamento", "OCI Always Free")
-
-    st.divider()
-
-    if not fila_pendente:
-        st.success("🎉 Não há documentos pendentes de auditoria no OCI Object Storage!")
+        fila = consultar("filas/auditoria")
+    except (requests.RequestException, ValueError):
+        st.error("Não foi possível consultar as pendências. Tente atualizar os dados.")
         return
-
-    opcoes_docs = {
-        f"{d['documento_id']} - {d.get('dados_extraidos', {}).get('paciente', {}).get('nome', 'Sem Nome')}": d['documento_id']
-        for d in fila_pendente
-    }
-    doc_selecionado_label = st.selectbox("Selecione o Documento para Homologação:", list(opcoes_docs.keys()))
-    doc_id_alvo = opcoes_docs[doc_selecionado_label]
-
-    doc = next(d for d in fila_pendente if d["documento_id"] == doc_id_alvo)
-    caminho_oci_origem = doc.get("armazenamento_oci", {}).get("caminho_objeto")
-
-    col_analise, col_edicao = st.columns([1, 1], gap="large")
-
-    with col_analise:
-        st.subheader("📑 Diagnóstico do Agente")
-        justificativa = doc.get("decisao_roteamento", {}).get("justificativa_roteamento", "")
-        st.warning(f"⚠️ **Motivo da Retenção:** {justificativa}")
-        st.write(f"**Identificador:** `{doc.get('documento_id')}`")
-        st.write(f"**Score IA:** `{doc.get('classificacao', {}).get('score_confianca_classificacao', 0.0) * 100:.1f}%`")
-        st.write(f"**Objeto no OCI:** `{caminho_oci_origem}`")
-
-        with st.expander("Exibir Dados Brutos do OCI (JSON)", expanded=True):
+    c1, c2 = st.columns(2)
+    c1.metric("Documentos pendentes", len(fila))
+    c2.metric("Limiar de confiança", "85%")
+    if not fila:
+        st.info("Nenhum documento pendente encontrado na consulta.")
+        return
+    indice = st.selectbox("Documento para revisão", range(len(fila)), format_func=lambda i: fila[i]["documento_id"])
+    doc = fila[indice]
+    dados = doc.get("dados_extraidos", {})
+    origem = doc.get("armazenamento_oci", {}).get("caminho_objeto")
+    esquerda, direita = st.columns(2, gap="large")
+    with esquerda:
+        st.subheader("Documento e motivo da retenção")
+        st.warning(doc.get("decisao_roteamento", {}).get("justificativa_roteamento") or "Revisão necessária.")
+        score = doc.get("classificacao", {}).get("score_confianca_classificacao", 0)
+        if doc.get("erro_extracao"):
+            st.error("Extração não realizada: " + doc["erro_extracao"]["mensagem"])
+        else:
+            st.write(f"Confiança da extração: {score:.1%}")
+        bruto = doc.get("armazenamento_oci", {}).get("caminho_documento_bruto")
+        if bruto:
+            try:
+                resp = requests.get(f"{API_URL}/original", params={"caminho": bruto}, timeout=15)
+                resp.raise_for_status()
+                mime = resp.headers.get("content-type", "")
+                tipo = "PDF" if "pdf" in mime else "IMAGEM" if "image/" in mime else "TEXTO"
+                renderizar_visualizador_documento(resp.content, tipo)
+            except requests.RequestException:
+                st.warning("Não foi possível carregar o original. Confira o documento antes de aprovar.")
+        else:
+            st.info("Este registro não possui referência ao original.")
+        with st.expander("Extração completa"):
             st.json(doc)
-
-    with col_edicao:
-        st.subheader("✏️ Retificação & Homologação no OCI")
-        paciente_dados = doc.get("dados_extraidos", {}).get("paciente", {})
-        medico_dados = doc.get("dados_extraidos", {}).get("medico_solicitante", {})
-
-        with st.form(key=f"form_auditoria_{doc['documento_id']}"):
-            paciente_retificado = st.text_input("Nome do Paciente", value=paciente_dados.get("nome") or "")
-            col_med1, col_med2 = st.columns(2)
-            medico_retificado = col_med1.text_input("Médico Responsável", value=medico_dados.get("nome") or "")
-            crm_retificado = col_med2.text_input("CRM com UF", value=medico_dados.get("crm") or "", placeholder="Ex: 145892-SP")
-
-            diagnostico_retificado = st.text_input("Diagnóstico Principal", value=doc.get("dados_extraidos", {}).get("diagnostico_principal") or "")
-            cid_retificado = st.text_input("CID-10 Homologado", value=doc.get("dados_extraidos", {}).get("cid_sugerido") or "")
-
-            destino_aprovacao = st.selectbox(
-                "Destino do Roteamento Pós-Auditoria",
-                ["Prontuario_Eletronico_Paciente", "Farmacia_Hospitalar", "Auditoria_de_Autorizacoes", "Fila_Emergencia_Medica"]
-            )
-            parecer = st.text_area("Parecer do Auditor Humano", value="Dados conferidos e homologados manualmente.")
-
-            b_col1, b_col2 = st.columns(2)
-            aprovar = b_col1.form_submit_button("✅ Aprovar e Salvar no OCI", type="primary", use_container_width=True)
-            rejeitar = b_col2.form_submit_button("❌ Rejeitar e Mover no OCI", use_container_width=True)
-
-            if aprovar or rejeitar:
-                acao = "aprovar" if aprovar else "rejeitar"
-                payload_homologacao = {
-                    "documento_id": doc["documento_id"],
-                    "origem_oci_path": caminho_oci_origem,
-                    "paciente_nome": paciente_retificado,
-                    "crm_retificado": crm_retificado,
-                    "diagnostico": diagnostico_retificado,
-                    "cid_homologado": cid_retificado,
-                    "destino_aprovado": destino_aprovacao,
-                    "parecer_auditor": parecer,
-                    "decisao": acao
-                }
-                with st.spinner("Atualizando registros no OCI Object Storage..."):
-                    resp_homolog = requests.post(f"{BASE_API}/triagem/homologar", json=payload_homologacao, timeout=15)
-
-                if resp_homolog.status_code == 200:
-                    st.success(f"Homologação concluída com sucesso! Registro persistido no OCI: `{resp_homolog.json().get('caminho_novo_oci')}`")
-                    st.rerun()
-                else:
-                    st.error(f"Erro ao persistir no OCI: {resp_homolog.text}")
+    with direita:
+        st.subheader("Revisar dados")
+        with st.form(f"auditoria_{doc['documento_id']}"):
+            paciente = st.text_input("Nome do paciente", value=(dados.get("paciente") or {}).get("nome") or "")
+            crm = st.text_input("CRM / UF", value=(dados.get("medico_solicitante") or {}).get("crm") or "", placeholder="123456-SP")
+            diagnostico = st.text_input("Diagnóstico principal", value=dados.get("diagnostico_principal") or "")
+            cid = st.text_input("CID-10", value=dados.get("cid_sugerido") or "")
+            destino = st.selectbox("Destino após aprovação", list(DESTINOS), format_func=DESTINOS.get)
+            parecer = st.text_area("Parecer do auditor", placeholder="Descreva a conferência e as correções.")
+            aprovar = st.form_submit_button("Aprovar e encaminhar", type="primary", width="stretch")
+            rejeitar = st.form_submit_button("Rejeitar documento", width="stretch")
+        if aprovar or rejeitar:
+            if not parecer.strip() or (aprovar and (not paciente.strip() or not crm.strip())):
+                st.error("Registre o parecer. Para aprovar, informe também o paciente e o CRM.")
+                return
+            if not origem:
+                st.error("Registro sem caminho de origem. Não é possível homologar.")
+                return
+            payload = dict(documento_id=doc["documento_id"], origem_oci_path=origem, paciente_nome=paciente, crm_retificado=crm, diagnostico=diagnostico, cid_homologado=cid, destino_aprovado=destino, parecer_auditor=parecer.strip(), decisao="aprovar" if aprovar else "rejeitar")
+            try:
+                with st.spinner("Salvando a decisão…"):
+                    resposta = enviar("homologar", payload)
+            except (requests.RequestException, ValueError):
+                st.error("Não foi possível confirmar a decisão. Atualize a fila antes de tentar novamente.")
+                return
+            mensagem = f"Decisão salva em {resposta['caminho_novo_oci']}."
+            if resposta.get("notificacao_enviada") is False:
+                mensagem += " O envio do alerta falhou."
+            elif resposta.get("notificacao_enviada"):
+                mensagem += " Notificador executado; consulte Integrações para verificar o modo de envio."
+            st.session_state.aviso_auditoria = mensagem
+            st.rerun()

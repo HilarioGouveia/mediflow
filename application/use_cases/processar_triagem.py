@@ -74,13 +74,13 @@ class ProcessarTriagemUseCase:
             return None
 
         try:
-            self.storage.salvar_arquivo(
+            confirmacao = self.storage.salvar_arquivo(
                 bucket_name=self.bucket_name,
                 object_name=caminho_bruto,
                 data=dados_bytes,
                 content_type=content_type,
             )
-            return caminho_bruto
+            return caminho_bruto if confirmacao else None
         except Exception as exc:
             logger.warning(
                 "Falha ao persistir documento original %s em OCI Object Storage: %s",
@@ -183,8 +183,9 @@ class ProcessarTriagemUseCase:
 
         # 6. Instanciação do DTO de resposta já assumindo 'sucesso' para a persistência
         resposta_final = TriagemResponseDTO(
-            status=StatusProcessamentoEnum.PROCESSADO,
+            status=StatusProcessamentoEnum.ERRO if resultado.get("erro_extracao") else StatusProcessamentoEnum.PROCESSADO,
             documento_id=request.documento_id,
+            erro_extracao=resultado.get("erro_extracao"),
             classificacao=classificacao,
             dados_extraidos=dados_extraidos,
             decisao_roteamento=decisao,
@@ -192,7 +193,7 @@ class ProcessarTriagemUseCase:
                 bucket=self.bucket_name,
                 caminho_objeto=caminho_decisao_oci,
                 caminho_documento_bruto=caminho_doc_original,
-                status_backup="sucesso",  # Inicia já com o status pretendido de sucesso
+                status_backup="sucesso" if caminho_doc_original else "falha",
             ),
         )
 

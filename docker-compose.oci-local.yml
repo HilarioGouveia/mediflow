@@ -1,0 +1,50 @@
+# Complemento local: docker compose -f docker-compose.yml -f docker-compose.oci-local.yml up --build -d
+services:
+  oci-emulator:
+    image: floci/floci-oci:0.5.0
+    ports:
+      - "127.0.0.1:4599:4599"
+    environment:
+      FLOCI_OCI_STORAGE_MODE: persistent
+      FLOCI_OCI_STORAGE_PERSISTENT_PATH: /app/data
+      FLOCI_OCI_SERVICES_FUNCTIONS_MOCK: "true"
+      FLOCI_OCI_SERVICES_OKE_MOCK: "true"
+    volumes:
+      - mediflow-oci-data:/app/data
+    restart: unless-stopped
+    mem_limit: 768m
+
+  mediflow-api:
+    # Código local somente leitura; credenciais continuam fora da imagem.
+    volumes:
+      - ./application:/app/application:ro
+      - ./domain:/app/domain:ro
+      - ./infrastructure:/app/infrastructure:ro
+      - ./config:/app/config:ro
+      - ./presentation:/app/presentation:ro
+      - ./scripts:/app/scripts:ro
+      - ./tests:/app/tests:ro
+    environment:
+      STORAGE_MODE: emulator
+      OCI_SERVICE_ENDPOINT: http://oci-emulator:4599
+    command: ["sh", "-c", "python -m infrastructure.oci_client.wait_storage && exec uvicorn presentation.api.main:app --host 0.0.0.0 --port 8000"]
+    depends_on:
+      oci-emulator:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+
+  mediflow-ui:
+    volumes:
+      - ./presentation:/app/presentation:ro
+      - ./.streamlit/config.toml:/app/.streamlit/config.toml:ro
+    depends_on:
+      mediflow-api:
+        condition: service_healthy
+
+volumes:
+  mediflow-oci-data:

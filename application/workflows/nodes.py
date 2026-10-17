@@ -1,4 +1,5 @@
 from domain.ports.llm_port import LLMPort
+from domain.exceptions import FalhaExtracaoIA
 from application.workflows.state import WorkflowTriagemState
 
 
@@ -8,14 +9,20 @@ class TriagemNodes:
 
     def no_extracao_multimodal(self, state: WorkflowTriagemState) -> WorkflowTriagemState:
         """Invoca o adaptador de IA para classificar e extrair entidades clínicas."""
-        resultado = self.llm_adapter.processar_documento(
-            conteudo=state["conteudo"], 
-            tipo_arquivo=state["tipo_arquivo"]
-        )
+        try:
+            resultado = self.llm_adapter.processar_documento(
+                conteudo=state["conteudo"], tipo_arquivo=state["tipo_arquivo"]
+            )
+        except FalhaExtracaoIA as exc:
+            return {
+                "dados_llm": {}, "score_confianca": 0.0, "achado_critico": False,
+                "erro_extracao": {"codigo": exc.codigo, "mensagem": str(exc)},
+            }
         return {
             "dados_llm": resultado,
             "score_confianca": resultado.get("score_confianca", 0.0),
             "achado_critico": resultado.get("achado_critico", False),
+            "erro_extracao": None,
         }
 
     def no_avaliar_urgencia(self, state: WorkflowTriagemState) -> WorkflowTriagemState:
@@ -63,6 +70,14 @@ class TriagemNodes:
 
     def no_encaminhar_auditoria(self, state: WorkflowTriagemState) -> WorkflowTriagemState:
         """Roteamento de contingência para Human-in-the-Loop com justificativa analítica."""
+        if state.get("erro_extracao"):
+            return {
+                "requer_auditoria_humana": True,
+                "destino_principal": "Fila_Revisao_Humana",
+                "justificativa_roteamento": "Extração não realizada: " + state["erro_extracao"]["mensagem"] + " Documento retido para revisão humana.",
+                "notificacao_gerada": None,
+                "caminho_oci_sugerido": f"auditoria_humana/{state['documento_id']}.json",
+            }
         score = state.get("score_confianca", 0.0)
         dados = state.get("dados_llm") or {}
         

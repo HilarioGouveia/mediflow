@@ -6,6 +6,7 @@ Registra os roteadores modulares e inicializa a aplicação FastAPI.
 from fastapi import FastAPI
 from presentation.api.routers.health_router import router as health_router
 from presentation.api.routers.triagem_router import router as triagem_router
+from presentation.api.routers.painel_router import router as painel_router
 
 app = FastAPI(
     title="MediFlow API",
@@ -16,3 +17,4 @@ app = FastAPI(
 # Inclusão dos roteadores modulares
 app.include_router(health_router)
 app.include_router(triagem_router)
+app.include_router(painel_router)

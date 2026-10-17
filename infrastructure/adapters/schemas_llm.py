@@ -1,10 +1,10 @@
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
 class PacienteLLMSchema(BaseModel):
     nome: Optional[str] = Field(None, description="Nome completo do paciente identificado")
-    idade: Optional[int] = Field(None, description="Idade do paciente em anos")
+    idade: Optional[int] = Field(None, ge=0, le=130, description="Idade do paciente em anos")
 
 
 class MedicoSolicitanteLLMSchema(BaseModel):
@@ -22,7 +22,7 @@ class ExtracaoClinicaLLMSchema(BaseModel):
         ..., 
         description="Especialidade médica (ex: Radiologia / Pneumologia, Cardiologia)"
     )
-    nivel_prioridade: str = Field(
+    nivel_prioridade: Literal["Urgente", "Prioritário", "Rotina"] = Field(
         ..., 
         description="Gravidade clínica: 'Urgente', 'Prioritário' ou 'Rotina'"
     )

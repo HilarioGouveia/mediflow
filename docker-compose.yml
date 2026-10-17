@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   mediflow-api:
     build: .
+    image: mediflow:local
     container_name: mediflow_api
     command: uvicorn presentation.api.main:app --host 0.0.0.0 --port 8000
     ports:
@@ -13,6 +12,7 @@ services:
 
   mediflow-ui:
     build: .
+    image: mediflow:local
     container_name: mediflow_ui
     command: streamlit run presentation/web/app.py --server.port 8501 --server.address 0.0.0.0
     ports:

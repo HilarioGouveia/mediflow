@@ -98,10 +98,16 @@ class ArmazenamentoOciDTO(BaseModel):
     )
 
 
+class ErroExtracaoDTO(BaseModel):
+    codigo: str
+    mensagem: str
+
+
 class TriagemResponseDTO(BaseModel):
     """Contrato final e padronizado retornado pela API e exportado para o OCI."""
     status: StatusProcessamentoEnum
     documento_id: str
+    erro_extracao: Optional[ErroExtracaoDTO] = None
     classificacao: ClassificacaoDTO
     dados_extraidos: DadosExtraidosDTO
     decisao_roteamento: DecisaoRoteamentoDTO

@@ -12,6 +12,7 @@ class WorkflowTriagemState(TypedDict, total=False):
     dados_llm: Optional[Dict[str, Any]]
     score_confianca: float
     achado_critico: bool
+    erro_extracao: Optional[Dict[str, str]]
 
     # Decisão de Roteamento
     requer_auditoria_humana: bool

@@ -10,6 +10,7 @@ from fastapi import APIRouter, status, Response
 from pydantic import BaseModel, Field
 
 from config.settings import settings
+from infrastructure.oci_client.storage_factory import get_storage_adapter
 
 router = APIRouter(
     tags=["Monitoramento & Saúde"]
@@ -72,7 +73,7 @@ async def readiness_check(response: Response) -> ReadinessStatusDTO:
         dependencias["llm_service"] = {
             "status": "ok",
             "provedor": "Google Gemini",
-            "autenticado": True
+            "autenticado": "não verificado"
         }
     else:
         dependencias["llm_service"] = {
@@ -82,18 +83,21 @@ async def readiness_check(response: Response) -> ReadinessStatusDTO:
         }
         is_pronto = False
 
-    # 2. Checagem de configuração do OCI Object Storage
-    if settings.OCI_NAMESPACE and settings.OCI_BUCKET_NAME:
+    # 2. Consulta real ao adaptador selecionado, sem inferência ou gravação.
+    try:
+        storage = get_storage_adapter()
+        storage.listar_objetos_por_prefixo(settings.OCI_BUCKET_NAME, "_health/")
         dependencias["oci_object_storage"] = {
             "status": "ok",
             "bucket": settings.OCI_BUCKET_NAME,
-            "namespace": settings.OCI_NAMESPACE,
-            "tier": "Always Free"
+            "namespace": getattr(storage, "namespace", None),
+            "modo": storage.modo,
         }
-    else:
+    except Exception:
         dependencias["oci_object_storage"] = {
             "status": "error",
-            "motivo": "Configurações de bucket ou namespace OCI incompletas"
+            "motivo": "Armazenamento configurado não está disponível.",
+            "modo": settings.STORAGE_MODE,
         }
         is_pronto = False
 

@@ -3,7 +3,23 @@ from abc import ABC, abstractmethod
 from typing import Any, Union, Dict, List
 
 class StoragePort(ABC):
-    """Porta para interação com o OCI Object Storage Always Free."""
+    """Contrato de armazenamento de documentos, independente do provedor."""
+
+    def obter_arquivo(self, bucket_name: str, object_name: str) -> bytes | None:
+        """Recupera o original quando suportado pelo adaptador."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def obter_json(self, bucket_name: str, object_name: str):
+        """Recupera o relatório ou retorna None quando ausente."""
+
+    @abstractmethod
+    def listar_objetos_por_prefixo(self, bucket_name: str, prefixo: str) -> list[str]:
+        """Lista os objetos do bucket sob o prefixo solicitado."""
+
+    @abstractmethod
+    def mover_objeto(self, bucket_name: str, origem: str, destino: str, novos_dados=None) -> bool:
+        """Persiste no destino e remove a origem apenas após sucesso."""
 
     @abstractmethod
     def salvar_arquivo(self, bucket_name: str, object_name: str, data: bytes, content_type: str = "application/octet-stream") -> str:
