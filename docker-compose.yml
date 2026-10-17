@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  mediflow-api:
+    build: .
+    container_name: mediflow_api
+    command: uvicorn presentation.api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: always
+
+  mediflow-ui:
+    build: .
+    container_name: mediflow_ui
+    command: streamlit run presentation/web/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://mediflow-api:8000/triagem
+    depends_on:
+      - mediflow-api
+    restart: always

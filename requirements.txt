@@ -1,0 +1,27 @@
+# Core Framework & Validation
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# Web API & Server
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+requests>=2.31.0
+
+# Agent Orchestration & State Graphs
+langgraph>=0.2.20
+langchain-core>=0.3.0
+
+# LLM & Multimodal AI
+google-genai>=0.1.1
+openai>=1.25.0
+
+# Oracle Cloud Infrastructure SDK (Always Free)
+oci>=2.125.0
+
+# User Interface & Human-in-the-Loop Audit Dashboard
+streamlit>=1.34.0
+
+# Testing & Linting
+pytest>=8.1.0
+pytest-mock>=3.14.0

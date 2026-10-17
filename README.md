@@ -132,7 +132,7 @@ mediflow/
 ### 1. Clonar o Repositório e Configurar Variáveis
 
 ```bash
-git clone [https://github.com/HilarioGouveia/mediflow.git](https://github.com/HilarioGouveia/mediflow.git)
+git clone https://github.com/HilarioGouveia/mediflow.git
 cd mediflow
 cp .env.example .env
 
@@ -197,3 +197,46 @@ A persistência do MediFlow está alinhada às restrições de custo zero do pro
 * **OCI Object Storage**: Organização lógica de buckets por status (`/recebidos`, `/processados`, `/auditoria_humana`).
 
 * **OCI Compute Instance (Opcional)**: Execução conteinerizada via VM Ampere A1 (ARM) ou AMD Micro da camada Always Free.
+
+
+## Estado de validacao (17/10/2026)
+
+Os sete testes unitarios passaram com dependencias simuladas. A homologacao de emergencia
+persiste o registro antes de chamar o notificador; a resposta inclui `notificacao_enviada`.
+Uma falha de notificacao nao desfaz a homologacao.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python -m pytest tests/unit
+python -m uvicorn presentation.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Em outro terminal, com o ambiente virtual ativado:
+
+```powershell
+python -m streamlit run presentation/web/app.py
+```
+
+Edite `.env` com suas configuracoes. `WEBHOOK_URL` e opcional; sem URL, o notificador
+registra o alerta apenas em log. O retorno positivo do notificador nesse modo nao
+comprova entrega a uma equipe externa.
+
+Sem configuracao OCI valida, o armazenamento usa memoria local, perde os dados ao
+reiniciar e pode retornar `status_backup="sucesso"` para operacoes simuladas.
+Esse modo nao comprova persistencia em nuvem. Para Docker, as credenciais OCI e a
+chave privada precisam ser disponibilizadas por montagem de volume, com caminhos
+validos dentro do container; o Compose atual nao configura essa montagem.
+
+A conexao real com Gemini terminou em `ConnectError` nas verificacoes. OCI real e
+webhook externo permanecem sem validacao. Os tres cenarios em
+`tests/demonstracao_cenarios.py` exigem a API ativa na porta 8000 e configuracao de IA;
+execute-os separadamente dos testes unitarios. Os indicadores da interface ainda sao
+valores fixos de demonstracao.
+
+Pendencia conhecida: falhas ao salvar o documento original podem ser reportadas
+como sucesso pelo caso de uso; o retorno de `salvar_arquivo` precisa ser verificado.
+
+Nao versione `.env`, ambientes virtuais, credenciais OCI ou chaves privadas.
