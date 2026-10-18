@@ -1,0 +1,2 @@
+from presentation.web.views.auditoria import renderizar_painel_auditoria
+renderizar_painel_auditoria()

@@ -1,0 +1,6 @@
+MEDIFLOW - DOCUMENTO FICTICIO PARA APRESENTACAO
+Cenario: revisao humana. Sem validade clinica.
+Paciente: identificacao ausente. Idade: nao informada.
+Profissional: assinatura parcialmente legivel. CRM ausente.
+Receituario medico: medicamento e posologia nao identificados.
+Informacoes insuficientes para concluir a triagem sem conferencia humana.

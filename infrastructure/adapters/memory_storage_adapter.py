@@ -28,7 +28,7 @@ class MemoryStorageAdapter(StoragePort):
         return json.loads(bruto) if bruto is not None else None
 
     def listar_objetos_por_prefixo(self, bucket_name, prefixo):
-        return sorted(chave for bucket, chave in self.objetos if bucket == bucket_name and chave.startswith(prefixo))
+        return sorted(chave for bucket, chave in list(self.objetos) if bucket == bucket_name and chave.startswith(prefixo))
 
     def mover_objeto(self, bucket_name, origem, destino, novos_dados=None):
         dados = novos_dados if novos_dados is not None else self.obter_json(bucket_name, origem)

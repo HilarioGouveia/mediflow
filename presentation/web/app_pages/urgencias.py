@@ -1,0 +1,2 @@
+from presentation.web.views.fila_urgencias import renderizar_fila_urgencias
+renderizar_fila_urgencias()

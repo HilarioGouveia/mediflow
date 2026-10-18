@@ -21,7 +21,8 @@ oci>=2.125.0
 cryptography>=41.0.0
 
 # User Interface & Human-in-the-Loop Audit Dashboard
-streamlit[pdf]>=1.57.0
+streamlit[pdf,auth]>=1.57.0
+python-dotenv>=1.0.0
 
 # Testing & Linting
 pytest>=8.1.0

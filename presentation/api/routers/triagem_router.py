@@ -8,10 +8,12 @@ import logging
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from application.dtos.input_request import TipoArquivoEnum, TriagemRequestDTO
 from application.dtos.output_response import TriagemResponseDTO
 from application.use_cases.processar_triagem import ProcessarTriagemUseCase
+from application.use_cases.acompanhar_fluxo import concluir_homologacao
 from infrastructure.oci_client.client_factory import get_triagem_use_case
 
 logger = logging.getLogger("MediFlowAuditoria")
@@ -54,7 +56,7 @@ class HomologacaoAuditoriaDTO(BaseModel):
     summary="Processar e triar documento clínico via JSON",
     description="Recebe carga estruturada (JSON/Base64), executa o grafo condicional e persiste no OCI."
 )
-async def processar_documento_json(
+def processar_documento_json(
     request: TriagemRequestDTO,
     use_case: ProcessarTriagemUseCase = Depends(get_triagem_use_case)
 ) -> TriagemResponseDTO:
@@ -117,7 +119,7 @@ async def processar_documento_upload(
     )
 
     try:
-        return use_case.executar(dto_entrada)
+        return await run_in_threadpool(use_case.executar, dto_entrada)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -193,12 +195,17 @@ def homologar_documento_auditoria(
     - Se aprovado para rotina/outro setor: move para 'processados/rotina/'.
     - Se rejeitado: move para 'processados/rejeitados/'.
     """
+    if not payload.origem_oci_path.startswith("auditoria_humana/") or ".." in payload.origem_oci_path.split("/"):
+        raise HTTPException(422, "A origem deve ser uma pendência de auditoria humana.")
     doc_antigo = use_case.storage.obter_json(use_case.bucket_name, payload.origem_oci_path)
     if not doc_antigo:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Documento pendente '{payload.origem_oci_path}' não foi localizado no OCI."
         )
+
+    if doc_antigo.get("documento_id") != payload.documento_id:
+        raise HTTPException(422, "O identificador não corresponde ao documento em revisão.")
 
     if payload.decisao == "aprovar":
         doc_antigo["status"] = "processado"
@@ -266,6 +273,13 @@ def homologar_documento_auditoria(
             detail="Falha ao movimentar e persistir o registro no OCI Object Storage."
         )
 
+    acompanhamento_confirmado = True
+    try:
+        concluir_homologacao(use_case.storage, use_case.bucket_name, doc_antigo, payload.decisao == "aprovar")
+    except Exception:
+        acompanhamento_confirmado = False
+        logger.error("Decisão persistida, mas acompanhamento não confirmado para %s", payload.documento_id)
+
     notificacao_enviada = None
     if payload.decisao == "aprovar" and payload.destino_aprovado == "Fila_Emergencia_Medica":
         alerta = doc_antigo["decisao_roteamento"]["notificacao_gerada"]
@@ -285,4 +299,5 @@ def homologar_documento_auditoria(
         "destino_aprovado": payload.destino_aprovado if payload.decisao == "aprovar" else "Rejeitado",
         "caminho_novo_oci": novo_caminho,
         "notificacao_enviada": notificacao_enviada,
+        "acompanhamento_fluxo_confirmado": acompanhamento_confirmado,
     }

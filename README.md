@@ -139,17 +139,90 @@ cp .env.example .env
 
 ```
 
-Edite o ficheiro `.env` com as credenciais necessárias:
+Edite o arquivo `.env` com as configurações necessárias. Se ele já existe,
+preserve suas credenciais e acrescente apenas os parâmetros que faltam.
+Os arquivos de exemplo são modelos; a aplicação lê os arquivos privados:
+
+| Arquivo | Finalidade | Quando configurar |
+| --- | --- | --- |
+| `.env` | Gemini, armazenamento, autenticação e alertas | Em todas as instalações |
+| `.streamlit/secrets.toml` | Cliente OAuth/OIDC e segredo do cookie de login | Quando `AUTH_ENABLED=true` |
+
+#### Parâmetros do `.env`
+
+| Parâmetro | Uso e valor inicial |
+| --- | --- |
+| `APP_ENV` | Ambiente de hospedagem exibido na sidebar: `local` (padrão) ou `cloud`. Defina `cloud` na implantação; Docker e OCI não determinam esse valor. |
+| `APP_MODE` | `operational` (padrão) ou `presentation`. Apresentação exige memória e desabilita webhooks externos. |
+| `PRESENTATION_USE_LLM` | Em apresentação: `false` (padrão) simula os exemplos sem LLM; `true` usa Gemini real, sem fallback automático. |
+| `GEMINI_API_KEY` | Chave da API Gemini para processar documentos, em qualquer modo de armazenamento. |
+| `GEMINI_MODEL_NAME` | Modelo usado na análise; padrão `gemini-3.5-flash`. |
+| `STORAGE_MODE` | `memory`: dados perdidos ao reiniciar; `emulator`: OCI local em Docker; `oci`: Oracle Cloud real. Padrão `memory`. |
+| `OCI_SERVICE_ENDPOINT` | Endereço do emulador, usado somente em `emulator`. Para a API no Windows: `http://localhost:4599`. |
+| `OCI_NAMESPACE` | Namespace do armazenamento em `emulator` e `oci`; pode ser fictício no emulador e deve ser real na nuvem. |
+| `OCI_BUCKET_NAME` | Bucket em `emulator` e `oci`. Criado automaticamente no emulador; deve existir na OCI real. |
+| `OCI_CONFIG_FILE` | Arquivo de credenciais Oracle, necessário somente em `oci`; padrão `~/.oci/config`. Deve estar acessível no ambiente da API. |
+| `OCI_CONFIG_PROFILE` | Perfil dentro do arquivo de credenciais Oracle; padrão `DEFAULT`. |
+| `AUTH_ENABLED` | `false`: acesso sem login; `true`: login na interface e token de serviço na API. Configure o mesmo valor nos dois serviços. |
+| `AUTH_PROVIDER` | Nome da seção do provedor em `secrets.toml`; padrão `google`, correspondente a `[auth.google]`. |
+| `AUTH_ALLOWED_EMAILS` | E-mails autorizados separados por vírgula; obrigatório com autenticação ativa. A conta também deve ter e-mail verificado pelo provedor. |
+| `MEDIFLOW_API_TOKEN` | Segredo aleatório de pelo menos 32 caracteres, idêntico na interface e na API; obrigatório com autenticação ativa. Não é o token Google do usuário. |
+| `WEBHOOK_URL` | Opcional. Vazio registra alertas apenas em log; preenchido envia ao webhook configurado. |
+
+Para começar sem login e sem OCI, preencha a chave Gemini e mantenha:
 
 ```ini
 GEMINI_API_KEY="sua_chave_gemini"
 GEMINI_MODEL_NAME="gemini-3.5-flash"
-OCI_CONFIG_FILE="~/.oci/config"
-OCI_CONFIG_PROFILE="DEFAULT"
-OCI_NAMESPACE="seu_tenancy_namespace"
-OCI_BUCKET_NAME="mediflow-documentos-clinicos"
-
+STORAGE_MODE="memory"
+AUTH_ENABLED="false"
 ```
+
+O login independe do armazenamento: pode ser ativado em `memory`, `emulator`
+ou `oci`. Parar o emulador não muda o modo automaticamente; uma API configurada
+como `emulator` continua precisando dele para armazenar e consultar documentos.
+
+A sidebar mostra ambiente, autenticação e armazenamento separadamente. Em
+**Armazenamento e integrações**, a execução da interface indica Docker quando
+o marcador `/.dockerenv` está presente, ou Python direto quando ausente. Essa
+identificação se refere ao servidor Streamlit; a API pode executar separadamente.
+
+#### Parâmetros do `.streamlit/secrets.toml`
+
+Para habilitar o login, copie o modelo somente se o arquivo privado ainda não existe:
+
+```powershell
+Copy-Item .streamlit/secrets.example.toml .streamlit/secrets.toml
+```
+
+| Seção e parâmetro | Finalidade |
+| --- | --- |
+| `[auth]` → `redirect_uri` | Endereço de retorno do login. Localmente: `http://localhost:8501/oauth2callback`; deve coincidir com o cadastrado no provedor. |
+| `[auth]` → `cookie_secret` | Segredo aleatório para o cookie de sessão; gere um valor diferente de `MEDIFLOW_API_TOKEN`. |
+| `[auth.google]` → `client_id` | Identificador do cliente OAuth cadastrado para a aplicação no Google. |
+| `[auth.google]` → `client_secret` | Segredo do mesmo cliente OAuth. A chave Gemini não substitui esse valor. |
+| `[auth.google]` → `server_metadata_url` | Metadados OIDC do provedor; o modelo já contém o endereço do Google. |
+
+Configure o cliente OAuth e os secrets antes de definir `AUTH_ENABLED=true`,
+preencher os e-mails autorizados e definir o token de serviço no `.env`.
+O passo a passo está em [Autenticação OIDC](docs/autenticacao.md).
+Mantenha `.env` e `.streamlit/secrets.toml` fora do Git.
+
+#### Configuração ao executar com Docker
+
+O Compose pode definir valores que têm prioridade sobre o `.env`:
+
+- `docker-compose.oci-local.yml` configura a API com `STORAGE_MODE=emulator`
+  e `OCI_SERVICE_ENDPOINT=http://oci-emulator:4599`. O volume do Docker preserva
+  os dados entre reinícios. Veja [OCI local em container](#oci-local-em-container).
+- `docker-compose.auth.yml` força `AUTH_ENABLED=true` na interface e na API,
+  exige os e-mails e o token de serviço e monta `secrets.toml` na interface.
+  Pode ser usado com ou sem o complemento do emulador.
+
+Após alterar configurações, reinicie os processos Python. No Docker, execute
+novamente `docker compose` com os mesmos arquivos `-f` e `up -d` para aplicar
+o ambiente atualizado aos containers; apenas `restart` não atualiza as variáveis.
+Use `--build` quando precisar reconstruir a imagem, como após mudar dependências.
 
 ### 2. Execução Rápida via Docker Compose
 
@@ -240,11 +313,144 @@ execute-os separadamente dos testes unitarios.
 
 ### Painel operacional
 
-O painel tem navegacao lateral para Nova triagem, Urgencias, Auditoria, Historico e
-Integracoes. A triagem aceita PDF, JPG/PNG, TXT, JSON ou texto colado e preserva o
+**Armazenamento e integrações** lista objetos reais via
+`GET /triagem/armazenamento/objetos`, com contagens para `recebidos/`,
+`processados/`, `auditoria_humana/` e `fluxo/`. A tabela permite filtrar área e
+caminho; não lê o conteúdo dos objetos. As contagens representam objetos, não
+documentos únicos. Falhas são estados do processamento e não uma pasta fictícia.
+Nome, extensão e caminho vêm das chaves listadas; data, tamanho e integridade
+não são verificados. Falha na consulta aparece como indisponibilidade, não como zero.
+
+Em **Nova triagem**, escolha **Enviar arquivo** (PDF, JPG, PNG ou TXT) ou
+**Fotografar documento**. A câmera captura uma página por vez, pede permissão
+ao navegador e depende de câmera disponível e contexto seguro (localhost ou HTTPS).
+Capture uma imagem legível e clique em **Executar triagem** para iniciar a análise.
+Se a câmera não estiver disponível, use o upload. Não há integração com scanner
+físico nem correção automática de perspectiva. Texto e JSON seguem disponíveis na
+API; não aparecem como entradas separadas na interface do atendente.
+Na apresentação simulada, a câmera fica desabilitada: use os exemplos TXT.
+
+#### Modo Apresentação
+
+Configure no `.env` e reinicie a API:
+
+```dotenv
+APP_MODE="presentation"
+PRESENTATION_USE_LLM="false"
+STORAGE_MODE="memory"
+```
+
+O aviso amarelo permanente identifica a apresentação. Em **Nova triagem**, baixe
+um dos três exemplos TXT (rotina, urgência e revisão humana) e faça seu upload.
+A extração simulada reconhece o conteúdo desses arquivos, inclusive após renomear,
+e retorna dados predefinidos. As regras de roteamento, filas, original, histórico
+e homologação continuam usando o backend normal. Arquivos desconhecidos não recebem
+resultados inventados: a análise fica não concluída, com orientação e revisão humana.
+
+Não há chamada à LLM no modo simulado. Os documentos e resultados ficam somente
+na memória da API e são compartilhados pelos usuários dessa instância; reiniciar
+a API descarta esses registros. Alertas externos ficam desabilitados mesmo com
+`WEBHOOK_URL` preenchido; mensagens ainda podem aparecer nos logs. Use somente
+documentos fictícios. A apresentação não valida a integração com Gemini.
+
+Para demonstrar Gemini de verdade, use `PRESENTATION_USE_LLM="true"` e reinicie
+a API. O aviso identifica a análise real, que depende de chave, rede e cota, envia
+conteúdo ao provedor e não muda silenciosamente para simulação em caso de falha.
+O armazenamento continua temporário e os webhooks continuam desabilitados.
+
+Para voltar à operação normal, use `APP_MODE="operational"` e reinicie a API.
+Apresentação com `STORAGE_MODE` diferente de `memory` é rejeitada na inicialização.
+No Docker, use o Compose base; o complemento `docker-compose.oci-local.yml` força
+`emulator` e é incompatível com este modo. Aplique mudanças com `up -d`, usando
+`--build` na primeira execução após adicionar esse código. A UI consulta o modo
+efetivo da API; não há seletor que altere o modo compartilhado durante a sessão.
+
+O resultado de **Nova triagem** e o detalhe em **Documentos clínicos** incluem
+um resumo com categoria, especialidade, confiança da classificação e origem
+quando registrada. Campos de identificação não preenchidos são apresentados
+para conferência, sem presumir ilegibilidade ou obrigatoriedade. Registros antigos
+sem canal de origem exibem “Não registrada”. Falhas de extração não exibem a
+classificação de contingência como avaliação clínica concluída.
+
+Nos detalhes de **Documentos clínicos**, a linha do tempo consulta os eventos
+persistidos da mesma execução do documento. Registros antigos sem eventos,
+horários ausentes e estados reconciliados são identificados explicitamente.
+O registro de destino não comprova entrega externa. Uma falha na consulta do
+histórico não bloqueia a leitura do resultado da triagem.
+
+A **Revisão humana** apresenta o original e os campos editáveis lado a lado.
+Ao escolher aprovação ou rejeição, mostra as alterações propostas, o parecer e
+o destino quando aplicável. A decisão só é enviada após **Confirmar e salvar
+decisão**. Cancelar mantém a edição; trocar de pendência ou atualizar os dados
+do documento invalida a confirmação preparada. Alterações adicionais no formulário
+precisam ser submetidas novamente para atualizar o resumo antes de confirmar.
+
+#### Diagnóstico de configuração e feedback
+
+Ao abrir uma sessão, a interface consulta `GET /triagem/diagnostico` e mostra
+problemas previsíveis com orientações de correção. O diagnóstico identifica chave
+Gemini ausente ou de exemplo, configuração OCI inválida, armazenamento temporário,
+autenticação da API e alertas somente em log. A configuração OIDC incompleta é
+tratada pela tela de login antes do acesso ao painel. Valores inválidos rejeitados
+na inicialização da API devem ser corrigidos no terminal para que ela possa iniciar.
+
+Em **Armazenamento e integrações**, **Verificar conexões** atualiza o diagnóstico
+e consulta o bucket usando o SDK OCI, com timeout e sem repetição automática.
+Essa consulta não grava documentos nem cria buckets; se o emulador estiver vazio,
+o bucket poderá precisar ser inicializado pela execução normal do app.
+Não há inferência Gemini nem envio de webhook nessa verificação. Uma chave
+preenchida não comprova validade ou cota; leitura do bucket não comprova escrita.
+
+O diagnóstico informa o instante da consulta, não é monitoramento contínuo.
+**Atualizar dados** refaz a inspeção de configuração. Erros conhecidos de Gemini
+ou armazenamento desabilitam novas triagens, preservando as páginas de consulta.
+Após mudar `.env`, reinicie a API (ou recrie os containers com `up -d`) e atualize
+o diagnóstico. Uma API sem o novo endpoint precisa ser reiniciada para carregá-lo.
+
+Login nativo OIDC, autorização por e-mail e proteção da API estão preparados em
+[docs/autenticacao.md](docs/autenticacao.md). O acesso local permanece sem login
+até configurar o cliente OAuth real, os secrets e ativar `AUTH_ENABLED` nos dois serviços.
+
+O painel abre na Central de triagem, com indicadores calculados dos documentos
+armazenados, busca e encaminhamento para revisao. Nao ha chave de demonstracao ou
+metricas ficticias. A navegacao lateral agrupa Central, Nova triagem, Documentos
+clinicos, Urgencias e Revisao humana em Triagem, e Armazenamento e integracoes em
+Plataforma. O tema usa verde-petroleo na sidebar, que pode ser recolhida pelo controle
+nativo do Streamlit. A triagem aceita PDF, JPG/PNG, TXT, JSON ou texto colado e preserva o
 ultimo resultado na sessao. A auditoria permite conferir o original ao lado dos
 campos editaveis. O historico consulta documentos armazenados, com busca por ID ou
 paciente e exportacao JSON; nao representa um log imutavel de eventos.
+
+As paginas compartilham cabecalho, cartoes, indicadores e estados vazios. Nova triagem
+mostra recebimento em largura completa e quatro etapas documentais, sem simular
+progresso do servico. Documentos clinicos permite combinar filtros por tipo, estado,
+prioridade, destino e revisao. Urgencias oferece busca e filtro de revisao; a auditoria
+mantem original e formulario lado a lado. Armazenamento e integracoes apresenta o
+ambiente configurado e a organizacao logica dos objetos, sem afirmar conexao ou
+entrega externa apenas pela configuracao.
+
+### Filas de processamento
+
+A pagina Filas de processamento apresenta Recebidos, Em analise, Revisao humana,
+Processados e Encaminhados. O quadro consulta `GET /triagem/filas/processamento`
+a cada cinco segundos e oferece busca e filtros por categoria, prioridade e destino.
+A movimentacao e automatica; abrir uma pendencia seleciona o documento na revisao.
+Falhas e rejeitados aparecem separadamente, sem serem tratados como encaminhados.
+
+O acompanhamento e salvo no mesmo adaptador de armazenamento, em `fluxo/<hash-do-id>.json`,
+com identificador da execucao, ultima etapa e eventos com horario UTC. Documentos
+anteriores usam seu resultado armazenado, sem horarios retroativos. O historico de
+etapas corresponde a execucao atual, nao a um log imutavel de todas as reexecucoes.
+Use identificadores unicos por documento. Uma nova execucao com o mesmo ID substitui
+seu acompanhamento; resultados de execucoes anteriores nao encerram a nova tentativa.
+
+Processados e uma etapa transitoria entre a triagem concluida e o registro do destino;
+pode aparecer apenas no historico do cartao. Encaminhado indica destino registrado,
+sem confirmar recebimento pelo setor, entrega de alerta ou atendimento. Nao e uma
+fila de tarefas em segundo plano: a ingestao continua sincrona, executada fora do
+event loop da API para permitir consultas concorrentes. O quadro mostra a ultima
+etapa persistida; uma interrupcao abrupta do processo pode deixar essa etapa sem
+conclusao ate a proxima execucao. No modo memoria, os registros continuam efemeros.
 
 Os indicadores fixos foram removidos. Falhas de consulta aparecem como erro, e o
 modo em memoria e identificado. A tela Integracoes informa o modo dos adaptadores;

@@ -52,27 +52,26 @@ def test_painel_offline_nao_informa_fila_vazia():
     with patch("requests.get", side_effect=requests.ConnectionError):
         painel = AppTest.from_file(Path(__file__).resolve().parents[2] / "presentation/web/app.py", default_timeout=15).run()
         assert not painel.exception
-        for pagina in ("Urgências", "Auditoria", "Histórico", "Integrações"):
-            painel.radio[0].set_value(pagina).run()
+        for pagina in ("urgencias", "auditoria", "documentos", "integracoes"):
+            painel.switch_page(f"app_pages/{pagina}.py").run()
             assert not painel.exception
             assert not painel.success
-            if pagina != "Integrações":
-                assert painel.error
+            assert painel.error
 
 
 def test_triagem_preserva_resultado_ao_navegar():
     integracoes = {"armazenamento": {"modo": "simulado", "bucket": "teste"}, "ia": {"provedor": "Gemini", "conexao": "não verificada"}, "alertas": {"modo": "somente_log", "entrega": "não verificada"}}
     documento = {"documento_id": "DOC-1", "classificacao": {"nivel_prioridade": "Rotina", "score_confianca_classificacao": .95}, "dados_extraidos": {"paciente": {"nome": "Teste"}}, "decisao_roteamento": {"destino_principal": "Farmacia_Hospitalar", "requer_auditoria_humana": False, "justificativa_roteamento": "Receita legível"}, "armazenamento_oci": {"status_backup": "sucesso", "caminho_objeto": "processados/rotina/DOC-1.json"}}
-    with patch("presentation.web.api_client.consultar", return_value=integracoes), patch("presentation.web.api_client.enviar", return_value=documento) as enviar:
+    arquivo = SimpleNamespace(name="receita.txt", getvalue=lambda: b"Receita de teste")
+    with patch("presentation.web.api_client.consultar", side_effect=lambda caminho: integracoes if caminho == "integracoes" else []), patch("presentation.web.api_client.enviar", return_value=documento) as enviar, patch("streamlit.file_uploader", return_value=arquivo):
         painel = AppTest.from_file(Path(__file__).resolve().parents[2] / "presentation/web/app.py", default_timeout=15).run()
-        painel.segmented_control[0].set_value("Texto").run()
-        painel.text_area[0].set_value("Receita de teste")
+        painel.switch_page("app_pages/nova_triagem.py").run()
         next(b for b in painel.button if b.label == "Executar triagem").click().run()
         assert not painel.exception
         enviar.assert_called_once()
         assert painel.session_state.resultado_triagem["documento_id"] == "DOC-1"
-        painel.radio[0].set_value("Integrações").run()
-        painel.radio[0].set_value("Nova triagem").run()
+        painel.switch_page("app_pages/integracoes.py").run()
+        painel.switch_page("app_pages/nova_triagem.py").run()
         assert not painel.exception
         assert painel.session_state.resultado_triagem["documento_id"] == "DOC-1"
 
@@ -85,7 +84,7 @@ def test_falha_ia_nao_mostra_resumo_clinico_como_sucesso():
             "erro_extracao": {"codigo": "servico_indisponivel", "mensagem": "IA indisponível."},
             "decisao_roteamento": {"requer_auditoria_humana": True},
         }
-        painel.run()
+        painel.switch_page("app_pages/nova_triagem.py").run()
         assert not painel.exception
         assert any("Extração não realizada" in erro.value for erro in painel.error)
         assert not painel.metric

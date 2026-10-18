@@ -1,0 +1,6 @@
+MEDIFLOW - DOCUMENTO FICTICIO PARA APRESENTACAO
+Cenario: rotina. Sem validade clinica.
+Paciente: Pessoa Ficticia Rotina. Idade: 54 anos.
+Profissional: Dra. Exemplo. CRM: 000001-SP (ficticio).
+Receituario medico: Losartana 50 mg, 1 comprimido ao dia.
+Hipertensao em acompanhamento de rotina, sem sinais de urgencia.

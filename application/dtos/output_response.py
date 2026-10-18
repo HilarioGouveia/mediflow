@@ -107,6 +107,8 @@ class TriagemResponseDTO(BaseModel):
     """Contrato final e padronizado retornado pela API e exportado para o OCI."""
     status: StatusProcessamentoEnum
     documento_id: str
+    execucao_id: Optional[str] = None
+    acompanhamento_fluxo_confirmado: bool = True
     erro_extracao: Optional[ErroExtracaoDTO] = None
     classificacao: ClassificacaoDTO
     dados_extraidos: DadosExtraidosDTO
