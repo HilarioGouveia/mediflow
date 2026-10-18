@@ -5,7 +5,7 @@ services:
     container_name: mediflow_api
     command: uvicorn presentation.api.main:app --host 0.0.0.0 --port 8000
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     restart: always
@@ -18,7 +18,12 @@ services:
     ports:
       - "8501:8501"
     environment:
+      - APP_ENV=${APP_ENV:-local}
       - API_URL=http://mediflow-api:8000/triagem
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - AUTH_PROVIDER=${AUTH_PROVIDER:-google}
+      - AUTH_ALLOWED_EMAILS=${AUTH_ALLOWED_EMAILS:-}
+      - MEDIFLOW_API_TOKEN=${MEDIFLOW_API_TOKEN:-}
     depends_on:
       - mediflow-api
     restart: always

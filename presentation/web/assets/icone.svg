@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="MediFlow">
+  <rect width="48" height="48" rx="13" fill="#177c7d"/>
+  <path d="M8 24h8l4-10 6 20 4-10h10" fill="none" stroke="#b7f1e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

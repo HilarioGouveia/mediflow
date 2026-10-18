@@ -69,7 +69,9 @@ async def readiness_check(response: Response) -> ReadinessStatusDTO:
     is_pronto = True
 
     # 1. Checagem de configuração da LLM
-    if settings.GEMINI_API_KEY and len(settings.GEMINI_API_KEY.strip()) > 10:
+    if settings.APP_MODE == "presentation" and not settings.PRESENTATION_USE_LLM:
+        dependencias["llm_service"] = {"status": "ok", "provedor": "Simulação de apresentação", "autenticado": "não se aplica"}
+    elif settings.GEMINI_API_KEY and len(settings.GEMINI_API_KEY.strip()) > 10:
         dependencias["llm_service"] = {
             "status": "ok",
             "provedor": "Google Gemini",

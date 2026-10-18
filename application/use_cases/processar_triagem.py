@@ -29,6 +29,7 @@ from application.dtos.output_response import (
     ArmazenamentoOciDTO,
 )
 from application.workflows.graph import criar_grafo_triagem
+from application.use_cases.acompanhar_fluxo import novo_registro, registrar_etapa
 
 logger = logging.getLogger("MediFlowUseCase")
 
@@ -90,11 +91,26 @@ class ProcessarTriagemUseCase:
             return None
 
     def executar(self, request: TriagemRequestDTO) -> TriagemResponseDTO:
+        registro = novo_registro(request.documento_id)
+        registro["canal_origem"] = request.canal_origem
+        registrar_etapa(self.storage, self.bucket_name, registro, "recebidos")
+        try:
+            return self._executar(request, registro)
+        except Exception:
+            try:
+                registrar_etapa(self.storage, self.bucket_name, registro, "falha", mensagem="Processamento interrompido. Confira o documento antes de reenviar.")
+            except Exception:
+                logger.error("Falha ao registrar interrupção de %s", request.documento_id)
+            raise
+
+    def _executar(self, request: TriagemRequestDTO, registro) -> TriagemResponseDTO:
         """
         Executa a triagem condicional de um documento clínico e retorna o contrato validado.
         """
         # 1. Persistência mandatória do documento original em /recebidos/
         caminho_doc_original = self._salvar_documento_original(request)
+        registro["caminho_documento_bruto"] = caminho_doc_original
+        registrar_etapa(self.storage, self.bucket_name, registro, "em_analise")
 
         # 2. Definição do conteúdo para processamento da LLM
         conteudo = request.arquivo_base64 if request.arquivo_base64 else request.documento_texto
@@ -185,6 +201,7 @@ class ProcessarTriagemUseCase:
         resposta_final = TriagemResponseDTO(
             status=StatusProcessamentoEnum.ERRO if resultado.get("erro_extracao") else StatusProcessamentoEnum.PROCESSADO,
             documento_id=request.documento_id,
+            execucao_id=registro["execucao_id"],
             erro_extracao=resultado.get("erro_extracao"),
             classificacao=classificacao,
             dados_extraidos=dados_extraidos,
@@ -214,4 +231,16 @@ class ProcessarTriagemUseCase:
             )
             resposta_final.armazenamento_oci.status_backup = "falha"
 
+        try:
+            documento = resposta_final.model_dump(mode="json")
+            if resposta_final.armazenamento_oci.status_backup == "falha":
+                registrar_etapa(self.storage, self.bucket_name, registro, "falha", documento, "Falha ao armazenar o original ou o resultado da triagem.")
+            elif decisao.requer_auditoria_humana:
+                registrar_etapa(self.storage, self.bucket_name, registro, "revisao_humana", documento)
+            else:
+                registrar_etapa(self.storage, self.bucket_name, registro, "processados", documento)
+                registrar_etapa(self.storage, self.bucket_name, registro, "encaminhados", documento)
+        except Exception:
+            resposta_final.acompanhamento_fluxo_confirmado = False
+            logger.error("Resultado retornado, mas acompanhamento não confirmado para %s", request.documento_id)
         return resposta_final

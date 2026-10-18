@@ -1,10 +1,17 @@
 import os
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    APP_ENV: Literal["local", "cloud"] = "local"
+    APP_MODE: Literal["operational", "presentation"] = "operational"
+    PRESENTATION_USE_LLM: bool = False
+    AUTH_ENABLED: bool = False
+    MEDIFLOW_API_TOKEN: SecretStr = SecretStr("")
+    AUTH_ALLOWED_EMAILS: str = ""
+    AUTH_PROVIDER: str = "google"
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL_NAME: str = Field(default="gemini-3.5-flash", min_length=1)
     GEMINI_TIMEOUT_MS: int = Field(default=20000, ge=1000, le=60000)
@@ -19,6 +26,12 @@ class Settings(BaseSettings):
     WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "")
 
     model_config = SettingsConfigDict(env_file=".env")
+
+    @model_validator(mode="after")
+    def validar_apresentacao(self):
+        if self.APP_MODE == "presentation" and self.STORAGE_MODE != "memory":
+            raise ValueError("Modo apresentação exige STORAGE_MODE=memory.")
+        return self
 
 
 settings = Settings()

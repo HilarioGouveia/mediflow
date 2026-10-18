@@ -1,0 +1,19 @@
+# Complemento de autenticação; mantenha as credenciais fora do repositório.
+services:
+  mediflow-api:
+    environment:
+      AUTH_ENABLED: "true"
+      MEDIFLOW_API_TOKEN: ${MEDIFLOW_API_TOKEN:?Defina MEDIFLOW_API_TOKEN no ambiente}
+  mediflow-ui:
+    environment:
+      AUTH_ENABLED: "true"
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-google}
+      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:?Defina os emails autorizados}
+      MEDIFLOW_API_TOKEN: ${MEDIFLOW_API_TOKEN:?Defina MEDIFLOW_API_TOKEN no ambiente}
+    volumes:
+      - type: bind
+        source: ./.streamlit/secrets.toml
+        target: /app/.streamlit/secrets.toml
+        read_only: true
+        bind:
+          create_host_path: false

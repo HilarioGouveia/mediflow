@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="250" height="58" viewBox="0 0 250 58" role="img" aria-label="MediFlow, triagem documental">
+  <rect x="2" y="7" width="44" height="44" rx="13" fill="#177c7d"/>
+  <path d="M10 29h7l4-10 6 20 4-10h7" fill="none" stroke="#b7f1e8" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="57" y="29" fill="#e8f2f3" font-family="Arial,sans-serif" font-size="24" font-weight="700">Medi<tspan fill="#69d6c8">Flow</tspan></text>
+  <text x="58" y="45" fill="#b7cdd2" font-family="Arial,sans-serif" font-size="9" letter-spacing="1.5">TRIAGEM DOCUMENTAL</text>
+</svg>

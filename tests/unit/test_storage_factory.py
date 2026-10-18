@@ -25,21 +25,21 @@ def test_memoria_isola_buckets():
 
 
 def test_memoria_explicita_nao_inicializa_sdk():
-    config = Settings(STORAGE_MODE="memory", _env_file=None)
+    config = Settings(APP_MODE="operational", STORAGE_MODE="memory", _env_file=None)
     with patch.object(storage_factory, "settings", config), patch("oci.object_storage.ObjectStorageClient") as client:
         assert storage_factory.get_storage_adapter().modo == "simulado"
         client.assert_not_called()
 
 
 def test_nuvem_com_credenciais_invalidas_nao_cai_em_memoria():
-    config = Settings(STORAGE_MODE="oci", _env_file=None)
+    config = Settings(APP_MODE="operational", STORAGE_MODE="oci", _env_file=None)
     with patch.object(storage_factory, "settings", config), patch("oci.config.from_file", side_effect=RuntimeError("credenciais inválidas")):
         with pytest.raises(RuntimeError):
             storage_factory.get_storage_adapter()
 
 
 def test_emulador_usa_sdk_nativo_e_namespace_descoberto():
-    config = Settings(STORAGE_MODE="emulator", _env_file=None)
+    config = Settings(APP_MODE="operational", STORAGE_MODE="emulator", _env_file=None)
     with patch.object(storage_factory, "settings", config), patch("oci.object_storage.ObjectStorageClient") as cls:
         client = cls.return_value
         client.get_namespace.return_value.data = "namespace-local"
@@ -80,4 +80,5 @@ def test_falha_no_original_nao_reporta_backup_completo(excecao):
     resposta = caso.executar(TriagemRequestDTO(documento_id="TESTE", tipo_arquivo="TEXTO", documento_texto="Dados fictícios", canal_origem="Teste"))
     assert resposta.armazenamento_oci.status_backup == "falha"
     assert resposta.armazenamento_oci.caminho_documento_bruto is None
-    assert storage.salvar_json.call_args.kwargs["json_data"]["armazenamento_oci"]["status_backup"] == "falha"
+    relatorios = [c.kwargs["json_data"] for c in storage.salvar_json.call_args_list if "json_data" in c.kwargs]
+    assert relatorios[0]["armazenamento_oci"]["status_backup"] == "falha"

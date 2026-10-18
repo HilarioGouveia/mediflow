@@ -3,6 +3,7 @@ import os
 from uuid import uuid4
 
 import pytest
+from application.use_cases.acompanhar_fluxo import chave_fluxo
 from fastapi.testclient import TestClient
 from unittest.mock import Mock
 
@@ -37,15 +38,21 @@ def test_sdk_e_fluxo_auditoria_via_api():
         assert resposta.json()["decisao_roteamento"]["requer_auditoria_humana"]
         assert storage.obter_arquivo(bucket, bruto) == b"Documento sint\xc3\xa9tico para teste local."
         assert origem in storage.listar_objetos_por_prefixo(bucket, "auditoria_humana/")
+        fluxo = next(d for d in client.get("/triagem/filas/processamento").json() if d["documento_id"] == documento_id)
+        assert fluxo["etapa"] == "revisao_humana"
+        assert [e["etapa"] for e in fluxo["eventos"]] == ["recebidos", "em_analise", "revisao_humana"]
         assert client.get("/triagem/original", params={"caminho": bruto}).status_code == 200
         homologacao = client.post("/triagem/homologar", json={"documento_id": documento_id, "origem_oci_path": origem, "paciente_nome": "Paciente Fictício", "crm_retificado": "123456-SP", "diagnostico": "Exemplo sintético", "cid_homologado": "Z00", "destino_aprovado": "Farmacia_Hospitalar", "parecer_auditor": "Conferência de teste", "decisao": "aprovar"})
         assert homologacao.status_code == 200
         assert storage.obter_json(bucket, origem) is None
         assert storage.obter_json(bucket, destino)["dados_extraidos"]["paciente"]["nome"] == "Paciente Fictício"
         assert any(d["documento_id"] == documento_id for d in client.get("/triagem/historico").json())
+        fluxo = next(d for d in client.get("/triagem/filas/processamento").json() if d["documento_id"] == documento_id)
+        assert fluxo["etapa"] == "encaminhados"
+        assert fluxo["eventos"][-1]["etapa"] == "encaminhados"
     finally:
         app.dependency_overrides.clear()
-        for chave in (bruto, origem, destino):
+        for chave in (bruto, origem, destino, chave_fluxo(documento_id)):
             try:
                 storage.client.delete_object(storage.namespace, bucket, chave)
             except Exception:
