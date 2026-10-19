@@ -107,13 +107,15 @@ class ProcessarTriagemUseCase:
         """
         Executa a triagem condicional de um documento clínico e retorna o contrato validado.
         """
+        # Normaliza antes de persistir ou iniciar o grafo.
+        conteudo = request.conteudo_para_extracao()
+
         # 1. Persistência mandatória do documento original em /recebidos/
         caminho_doc_original = self._salvar_documento_original(request)
         registro["caminho_documento_bruto"] = caminho_doc_original
         registrar_etapa(self.storage, self.bucket_name, registro, "em_analise")
 
         # 2. Definição do conteúdo para processamento da LLM
-        conteudo = request.arquivo_base64 if request.arquivo_base64 else request.documento_texto
 
         estado_inicial: Dict[str, Any] = {
             "documento_id": request.documento_id,

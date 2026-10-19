@@ -1,0 +1,23 @@
+# API isolada para testes HTTP determinísticos com o emulador OCI.
+services:
+  mediflow-test-api:
+    build: .
+    image: mediflow:local
+    command: ["python", "tests/serve_simulated_api.py"]
+    ports:
+      - "127.0.0.1:8001:8000"
+    environment:
+      APP_MODE: operational
+      STORAGE_MODE: emulator
+      OCI_SERVICE_ENDPOINT: http://oci-emulator:4599
+      OCI_BUCKET_NAME: mediflow-testes-compose
+      AUTH_ENABLED: "false"
+      GEMINI_API_KEY: ""
+      WEBHOOK_URL: ""
+    volumes:
+      - ./application:/app/application:ro
+      - ./infrastructure:/app/infrastructure:ro
+      - ./presentation:/app/presentation:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      - oci-emulator

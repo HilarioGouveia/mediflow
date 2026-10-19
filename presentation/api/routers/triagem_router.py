@@ -79,13 +79,13 @@ def processar_documento_json(
     "/upload",
     response_model=TriagemResponseDTO,
     status_code=status.HTTP_200_OK,
-    summary="Upload direto de arquivo (PDF / Imagem)",
+    summary="Upload direto de arquivo (PDF / Imagem / TXT UTF-8)",
     description="Recebe arquivo binário via multipart/form-data e executa a triagem multimodal."
 )
 async def processar_documento_upload(
     documento_id: str = Form(..., description="ID do documento (ex: DOC-CLIN-2026-8942)"),
     canal_origem: str = Form(..., description="Canal de entrada (ex: Pronto_Socorro, Ambulatorio)"),
-    arquivo: UploadFile = File(..., description="Arquivo digitalizado (PDF, PNG, JPG)"),
+    arquivo: UploadFile = File(..., description="Documento PDF, PNG, JPG ou TXT UTF-8 (BOM opcional)"),
     use_case: ProcessarTriagemUseCase = Depends(get_triagem_use_case)
 ) -> TriagemResponseDTO:
     """Endpoint para upload de arquivos brutos via formulário multipart."""
@@ -105,8 +105,10 @@ async def processar_documento_upload(
         nome_arquivo.endswith(ext) for ext in [".jpg", ".jpeg", ".png"]
     ):
         tipo_enum = TipoArquivoEnum.IMAGEM
-    else:
+    elif nome_arquivo.endswith(".txt") or content_type.split(";")[0].strip() == "text/plain":
         tipo_enum = TipoArquivoEnum.TEXTO
+    else:
+        raise HTTPException(415, "Formato não suportado. Envie PDF, PNG, JPG ou TXT UTF-8.")
 
     b64_conteudo = base64.b64encode(conteudo_bytes).decode("utf-8")
 
@@ -119,7 +121,10 @@ async def processar_documento_upload(
     )
 
     try:
+        dto_entrada.conteudo_para_extracao()
         return await run_in_threadpool(use_case.executar, dto_entrada)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -149,6 +154,12 @@ def listar_fila_urgencias(
         if chave.endswith(".json"):
             doc = use_case.storage.obter_json(use_case.bucket_name, chave)
             if doc:
+                casos.append(doc)
+    # Um urgente com pendências mantém um único registro na auditoria.
+    for chave in use_case.storage.listar_objetos_por_prefixo(use_case.bucket_name, "auditoria_humana/"):
+        if chave.endswith(".json"):
+            doc = use_case.storage.obter_json(use_case.bucket_name, chave)
+            if doc and doc.get("decisao_roteamento", {}).get("destino_principal") == "Fila_Emergencia_Medica":
                 casos.append(doc)
     return casos
 
