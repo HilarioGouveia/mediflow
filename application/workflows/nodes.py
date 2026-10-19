@@ -1,3 +1,4 @@
+from application.workflows.rules import requer_auditoria, validar_formato_crm
 from domain.ports.llm_port import LLMPort
 from domain.exceptions import FalhaExtracaoIA
 from application.workflows.state import WorkflowTriagemState
@@ -28,21 +29,21 @@ class TriagemNodes:
     def no_avaliar_urgencia(self, state: WorkflowTriagemState) -> WorkflowTriagemState:
         """Processa casos com achados clínicos críticos de alta gravidade."""
         
- #        paciente_nome = state["dados_llm"]["paciente"].get("nome", "Paciente não identificado")
         paciente_dict = state["dados_llm"].get("paciente") or {}
-        paciente_nome = paciente_dict.get("nome", "Paciente não identificado")
+        paciente_nome = paciente_dict.get("nome") or "Paciente não identificado"
  
-        diagnostico = state["dados_llm"].get("diagnostico_principal", "Condição Crítica")
+        diagnostico = state["dados_llm"].get("diagnostico_principal") or "Condição Crítica"
         
+        pendencia = self.no_encaminhar_auditoria(state) if requer_auditoria(state) else None
         return {
-            "requer_auditoria_humana": False,
+            "requer_auditoria_humana": pendencia is not None,
             "destino_principal": "Fila_Emergencia_Medica",
-            "justificativa_roteamento": f"Achado crítico de alta gravidade ({diagnostico}) detectado.",
+            "justificativa_roteamento": f"Achado crítico de alta gravidade ({diagnostico}) detectado." + (" " + pendencia["justificativa_roteamento"] if pendencia else ""),
             "notificacao_gerada": {
                 "canal": "Alerta_Plantao_Medico",
                 "mensagem": f"ALERTA URGENTE: Diagnóstico crítico de {diagnostico} para paciente {paciente_nome}."
             },
-            "caminho_oci_sugerido": f"processados/urgentes/{state['documento_id']}.json"
+            "caminho_oci_sugerido": pendencia["caminho_oci_sugerido"] if pendencia else f"processados/urgentes/{state['documento_id']}.json"
         }
 
     def no_rotear_padrao(self, state: WorkflowTriagemState) -> WorkflowTriagemState:
@@ -86,18 +87,18 @@ class TriagemNodes:
             motivos.append(f"Score de confiança insuficiente ({score:.2f})")
             
         paciente = dados.get("paciente") or {}
-        if not paciente.get("nome"):
+        if not str(paciente.get("nome") or "").strip():
             motivos.append("Ausência de identificação do paciente")
             
         medico = dados.get("medico_solicitante") or {}
         crm = medico.get("crm")
         if not crm:
             motivos.append("Registro CRM ausente ou ilegível")
-        elif not any(char.isdigit() for char in str(crm)):
+        elif not validar_formato_crm(crm):
             motivos.append(f"Formato de CRM inconsistente ('{crm}')")
 
         tipo_doc = str(dados.get("tipo_documento", "")).lower()
-        if "receit" in tipo_doc and len(dados.get("medicamentos", [])) == 0:
+        if "receit" in tipo_doc and len(dados.get("medicamentos") or []) == 0:
             motivos.append("Receituário sem posologias/fármacos detectados")
 
         if not motivos:

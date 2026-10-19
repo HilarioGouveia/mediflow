@@ -42,87 +42,86 @@ flowchart TD
 
 ## 📂 Estrutura Arquitetural do Repositório
 
+Estrutura resumida dos arquivos existentes. A homologação humana está implementada
+em `presentation/api/routers/triagem_router.py`; os mocks e fixtures ficam nos
+próprios módulos de teste.
+
 ```text
 mediflow/
-│
-├── .env.example                     # Variáveis de ambiente (chaves de API, credenciais OCI)
-├── .gitignore
-├── README.md                        # Documentação da arquitetura, fluxos e execução
-├── pyproject.toml                   # Dependências e metadados do projeto
-├── Dockerfile                       # Containerização para deploy na VM OCI Always Free
-├── docker-compose.yml               # Execução local da API FastAPI + UI Streamlit
-│
-├── config/                          # Configurações globais e carregamento de ambiente
-│   ├── __init__.py
-│   └── settings.py                  # Pydantic Settings (chaves, buckets OCI, thresholds)
-│
-├── domain/                          # NÚCLEO PURO: Regras clínicas e interfaces (Zero dependências externas)
-│   ├── __init__.py
-│   ├── entities/                    # Entidades do ecossistema clínico
-│   │   ├── __init__.py
-│   │   ├── paciente.py              # Identificação e dados demográficos
-│   │   ├── documento_clinico.py     # Metadados do documento e hash de integridade
-│   │   └── triagem.py               # Resultado do diagnóstico, prioridade e roteamento
-│   ├── value_objects/               # Objetos de valor imutáveis
-│   │   ├── __init__.py
-│   │   ├── prioridade.py            # Enum: Rotina, Prioritário, Urgente
-│   │   ├── score_confianca.py       # Validação de score (0.00 a 1.00)
-│   │   └── cid.py                   # Validação de código CID-10
-│   └── ports/                       # Interfaces abstratas / Portas Hexagonais (Protocol/ABC)
-│       ├── __init__.py
-│       ├── llm_port.py              # Contrato de extração multimodal e classificação
-│       ├── storage_port.py          # Contrato de persistência de objetos e buckets
-│       └── notifier_port.py         # Contrato para envio de alertas imediatos
-│
-├── application/                     # CASOS DE USO: Orquestração e fluxo de triagem
-│   ├── __init__.py
-│   ├── dtos/                        # Schemas Pydantic de entrada e saída (Contrato do Desafio)
-│   │   ├── __init__.py
-│   │   ├── input_request.py         # Schema da requisição JSON (documento_id, PDF/Base64/texto)
-│   │   └── output_response.py       # Schema oficial com classificacao, dados_extraidos e roteamento
-│   ├── workflows/                   # Grafo de decisão condicional (State Machine / LangGraph)
-│   │   ├── __init__.py
-│   │   ├── state.py                 # Estado do fluxo de triagem clínica
-│   │   ├── nodes.py                 # Nós: classificar, extrair, avaliar_confianca, rotear
-│   │   └── edges.py                 # Arestas condicionais: urgência vs rotina vs revisão humana
-│   └── use_cases/                   # Serviços de aplicação
-│       ├── __init__.py
-│       ├── processar_triagem.py     # Fluxo principal de ingestão, análise e persistência
-│       └── auditar_documento.py     # Resolução de casos com baixa confiança por humanos
-│
-├── infrastructure/                  # ADAPTADORES: Implementações tecnológicas externas
-│   ├── __init__.py
-│   ├── adapters/                    # Implementação concreta das Portas da camada de Domínio
-│   │   ├── __init__.py
-│   │   ├── gemini_llm_adapter.py    # Integração multimodal com Google GenAI SDK (Gemini)
-│   │   ├── openai_llm_adapter.py    # Fallback/Alternativa para GPT-4o
-│   │   ├── oci_storage_adapter.py   # SDK oci.object_storage (Always Free Buckets)
-│   │   └── webhook_notifier.py      # Notificador de plantão médico (Slack/Email/Webhook)
-│   └── oci_client/                  # Configuração de autenticação OCI (API Key / Instance Principal)
-│       ├── __init__.py
-│       └── client_factory.py
-│
-├── presentation/                    # APRESENTAÇÃO: Exposição de interfaces e endpoints
-│   ├── __init__.py
-│   ├── api/                         # API REST para ingestão e automações
-│   │   ├── __init__.py
-│   │   ├── main.py                  # Inicialização da aplicação FastAPI
+├── .env.example
+├── README.md
+├── pyproject.toml                   # Metadados e configuração de testes
+├── requirements.txt                 # Dependências usadas na imagem Docker
+├── Dockerfile
+├── docker-compose.yml               # API FastAPI e interface Streamlit
+├── docker-compose.oci-local.yml     # Complemento com emulador OCI
+├── docker-compose.test.yml          # API isolada com extração simulada
+├── config/
+│   └── settings.py                  # Configurações e seleção de ambiente
+├── domain/
+│   ├── entities/
+│   │   ├── paciente.py
+│   │   ├── documento_clinico.py
+│   │   └── triagem.py
+│   ├── value_objects/
+│   │   ├── prioridade.py
+│   │   ├── score.py                 # ScoreConfianca e limiar de confiança
+│   │   └── cid.py
+│   └── ports/
+│       ├── llm_port.py
+│       ├── storage_port.py
+│       └── notifier_port.py
+├── application/
+│   ├── dtos/
+│   │   ├── input_request.py         # Contrato de entrada e normalização de TXT
+│   │   └── output_response.py       # Contrato de saída
+│   ├── workflows/
+│   │   ├── state.py                 # Estado da triagem
+│   │   ├── nodes.py                 # Extração, urgência, rotina e auditoria
+│   │   ├── graph.py                 # Construção do grafo e arestas condicionais
+│   │   └── rules.py                 # Validações que exigem revisão humana
+│   └── use_cases/
+│       ├── processar_triagem.py     # Orquestração, notificação e persistência
+│       └── acompanhar_fluxo.py      # Etapas e reconciliação do acompanhamento
+├── infrastructure/
+│   ├── adapters/
+│   │   ├── gemini_llm_adapter.py
+│   │   ├── openai_llm_adapter.py     # Alternativa disponível; sem fallback automático
+│   │   ├── presentation_llm_adapter.py
+│   │   ├── schemas_llm.py
+│   │   ├── oci_storage_adapter.py
+│   │   ├── memory_storage_adapter.py
+│   │   └── webhook_notifier.py
+│   ├── oci_client/
+│   │   ├── client_factory.py        # Composição dos adaptadores
+│   │   ├── storage_factory.py       # Memória, emulador ou OCI real
+│   │   └── wait_storage.py
+│   └── diagnostico.py
+├── presentation_examples/           # Exemplos TXT para extração simulada
+├── presentation/
+│   ├── api/
+│   │   ├── main.py
+│   │   ├── auth.py
 │   │   └── routers/
-│   │       ├── __init__.py
-│   │       ├── triagem_router.py    # Endpoint POST /triagem
-│   │       └── health_router.py     # Endpoint GET /health
-│   └── web/                         # Painel de Auditoria Human-in-the-Loop
-│       ├── app.py                   # Aplicação Streamlit
-│       ├── components/              # Componentes de visualização (exibição de PDF e extração)
+│   │       ├── triagem_router.py    # Ingestão, filas e homologação humana
+│   │       ├── health_router.py
+│   │       └── painel_router.py
+│   └── web/
+│       ├── app.py
+│       ├── api_client.py
+│       ├── auth.py
+│       ├── components/
+│       ├── app_pages/              # Páginas do painel
 │       └── views/
-│           ├── fila_urgencias.py    # Visualização de casos urgentes
-│           └── auditoria.py         # Aprovação/rejeição com um clique de casos ambíguos
-│
-└── tests/                           # Suíte de testes automatizados
-    ├── conftest.py                  # Mocks de LLM e OCI Object Storage
-    ├── unit/                        # Testes das regras de negócio do Domínio
-    └── integration/                 # Testes dos 3 cenários obrigatórios (Rotina, Urgência, Ambiguidade)
-
+│           ├── fila_urgencias.py
+│           └── auditoria.py
+└── tests/
+    ├── unit/                       # Regras, fluxos e adaptadores simulados
+    ├── integration/
+    │   ├── test_oci_emulator.py     # SDK OCI, auditoria e homologação
+    │   └── test_compose_cenarios.py # Três cenários por HTTP com emulador OCI
+    ├── serve_simulated_api.py       # Entrada exclusiva da API Compose de testes
+    └── demonstracao_cenarios.py     # Demonstração separada contra API ativa
 ```
 
 ---
@@ -560,3 +559,51 @@ O primeiro comando verifica rotina, urgencia e ambiguidade. O segundo inclui PDF
 digitalizado e PNG sinteticos legiveis. Esses testes nao comprovam precisao clinica
 geral, leitura de manuscritos, persistencia OCI real nem entrega de notificacoes.
 Falhas de infraestrutura interrompem o teste com codigo de saida diferente de zero.
+
+
+### Regressões de triagem e integração determinística
+
+Achados críticos geram alerta ao plantão mesmo com pendências de CRM, paciente,
+confiança ou consistência. Quando há pendência, o documento permanece como registro
+único em `auditoria_humana/`, com destino clínico de emergência e revisão obrigatória.
+A consulta `/triagem/filas/urgencias` também inclui esses registros; a consulta de
+auditoria mantém a pendência até a homologação. A presença de notificação no relatório
+registra sua geração, sem comprovar entrega externa. As regras clínicas existentes
+não foram ampliadas e precisam de validação clínica antes do uso real.
+
+Uploads TXT aceitam UTF-8 com ou sem BOM. Base64 é validado estritamente e o texto
+é decodificado antes da extração; o original permanece byte a byte no armazenamento.
+Formatos não reconhecidos retornam 415; TXT com codificação inválida, vazio de texto
+ou caracteres binários de controle retorna 422 (arquivo sem bytes retorna 400).
+Texto direto no JSON é enviado literalmente, mesmo quando se parece com Base64.
+
+Os testes locais de regressão não exigem Gemini:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/unit/test_regressoes_triagem.py tests/unit/test_gemini_resilience.py
+```
+
+Para validar os três cenários por HTTP contra uma API Compose separada na porta
+8001, usando SDK OCI e emulador:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.oci-local.yml -f docker-compose.test.yml up --build -d oci-emulator mediflow-test-api
+$env:RUN_COMPOSE_TESTS="1"
+$env:OCI_SERVICE_ENDPOINT="http://localhost:4599"
+.\.venv\Scripts\python.exe -m pytest tests/integration/test_compose_cenarios.py -q
+```
+
+Essa API utiliza exclusivamente os exemplos TXT conhecidos de
+`presentation_examples/`, com extração predefinida. Não chama Gemini
+nem webhooks; não deve ser usada para documentos reais. Os testes conferem o upload,
+o original e relatório pelo SDK OCI, a decisão, as filas e o acompanhamento,
+removendo apenas os objetos criados por cada execução. Para encerrá-la sem remover
+os dados existentes do emulador:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.oci-local.yml -f docker-compose.test.yml stop mediflow-test-api
+```
+
+`tests/demonstracao_cenarios.py` permanece como verificação separada da API
+configurada pelo operador, inclusive com Gemini real. Seus resultados não substituem
+os testes determinísticos nem comprovam acesso à OCI real quando executados em memória.
